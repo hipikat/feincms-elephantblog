@@ -1,3 +1,4 @@
+from itertools import chain
 from django.contrib.auth.models import User
 from django.conf import settings
 from django.db import models
@@ -85,7 +86,7 @@ EntryManager.add_to_active_filters(
 
 
 
-class Entry(Base, ContentModelMixin):
+class ElephantblogEntry(Base, ContentModelMixin):
     is_active = models.BooleanField(_('is active'), default=True, db_index=True)
     is_featured = models.BooleanField(_('is featured'), default=False, db_index=True)
 
@@ -101,6 +102,7 @@ class Entry(Base, ContentModelMixin):
         related_name='blogentries', null=True, blank=True)
 
     class Meta:
+        abstract = True
         get_latest_by = 'published_on'
         ordering = ['-published_on']
         verbose_name = _('entry')
@@ -112,14 +114,14 @@ class Entry(Base, ContentModelMixin):
         return self.title
 
     def __init__(self, *args, **kwargs):
-        super(Entry, self).__init__(*args, **kwargs)
+        super(ElephantblogEntry, self).__init__(*args, **kwargs)
         self._old_is_active = self.is_active
 
     def save(self, *args, **kwargs):
         if self.is_active and not self.published_on:
             self.published_on = now()
 
-        super(Entry, self).save(*args, **kwargs)
+        super(ElephantblogEntry, self).save(*args, **kwargs)
     save.alters_data = True
 
     @models.permalink
@@ -138,8 +140,35 @@ class Entry(Base, ContentModelMixin):
 
     @classmethod
     def register_extension(cls, register_fn):
-        register_fn(cls, EntryAdmin)
+        register_fn(cls, ElephantblogEntryAdmin)
 
+
+class Entry(ElephantblogEntry):
+    Meta = ElephantblogEntry.Meta
+    Meta.abstract = False
+
+    ENTRY_TYPES = {
+        'blog': "Blog post",
+        'random': "General writing",
+    }
+    DEFAULT_ENTRY_TYPE = 'random'
+    entry_type = models.CharField(_('entry type'),
+                                  max_length=max(len(key) for key in ENTRY_TYPES.keys()),
+                                  choices=tuple(ENTRY_TYPES.items()),
+                                  default=DEFAULT_ENTRY_TYPE)
+    is_final = models.BooleanField(_('is final'), default=False, db_index=True)
+    
+    def is_draft(self):
+        return not self.is_final
+
+    def published_state(self):
+        return self.is_active and self.is_final
+
+    def save(self, *args, **kwargs):
+        super(Entry, self).save(*args, **kwargs)
+        if self.published_on and not self.published_state():
+            self.published_on = None
+    save.alters_data = True
 
 signals.post_syncdb.connect(check_database_schema(Entry, __name__), weak=False)
 
@@ -158,7 +187,7 @@ def entry_admin_update_fn(new_state, new_state_dict, short_description=None):
     return _fn
 
 
-class EntryAdmin(item_editor.ItemEditor):
+class ElephantblogEntryAdmin(item_editor.ItemEditor):
     date_hierarchy = 'published_on'
     filter_horizontal = ['categories']
     list_display = ['title', 'is_active', 'is_featured',  'published_on', 'author']
@@ -185,3 +214,15 @@ class EntryAdmin(item_editor.ItemEditor):
         }],
         item_editor.FEINCMS_CONTENT_FIELDSET,
     ]
+
+class EntryAdmin(ElephantblogEntryAdmin):
+    def __init__(self, *args, **kwargs):
+        # Add 'Is final' to top row of options
+        top_row = self.fieldsets[0][1]['fields'][0]
+        top_row = tuple(['is_final'] + list(top_row))
+        self.fieldsets[0][1]['fields'][0] = top_row
+        # Customise Entry list view
+        self.list_editable += ['is_final', 'entry_type']
+        self.list_display = ['title', 'entry_type', 'is_final', 'is_active',
+                             'is_featured',  'published_on']
+        super(EntryAdmin, self).__init__(*args, **kwargs)
