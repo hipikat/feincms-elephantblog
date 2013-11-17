@@ -16,6 +16,7 @@ def entry_list_lookup_related(entry_qs):
             entry_dict[content.parent_id].first_image = content
 
     m2mfield = Entry._meta.get_field('categories')
+    #import pdb; pdb.set_trace()
     for category in Category.objects.filter(blogentries__in=entry_dict.keys()).extra(
             select={
                 'entry_id': '%s.%s' % (m2mfield.m2m_db_table(), m2mfield.m2m_column_name()),
