@@ -161,12 +161,12 @@ class Entry(ElephantblogEntry):
     def is_draft(self):
         return not self.is_final
 
-    def published_state(self):
+    def is_published(self):
         return self.is_active and self.is_final
 
     def save(self, *args, **kwargs):
         super(Entry, self).save(*args, **kwargs)
-        if self.published_on and not self.published_state():
+        if self.published_on and not self.is_published():
             self.published_on = None
     save.alters_data = True
 
